@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Escola Horizonte — Portal da Escola</title>
+  <script>
+    // Aplica o tema salvo ANTES de carregar a página (evita "piscar" a tela)
+    try {
+      var s = JSON.parse(localStorage.getItem('escola_horizonte_settings') || '{}');
+      document.documentElement.dataset.theme = s.theme || 'light';
+      document.documentElement.dataset.accent = s.accent || 'blue';
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app-root"></div>
+
+  <!-- Modal genérico (formulários de adicionar/editar) -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <h3 id="modal-title"></h3>
+      <form id="modal-form">
+        <div id="modal-body"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" id="modal-cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="modal-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Ordem importa: config → dados → api → app -->
+  <script src="js/config.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
