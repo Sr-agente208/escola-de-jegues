@@ -1112,11 +1112,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#modal-overlay').addEventListener('click', e => { if (e.target.id === 'modal-overlay') closeModal(); });
   $('#modal-cancel').addEventListener('click', closeModal);
 
-  // Link do e-mail de autorização (?autorizar=TOKEN)
-  const authToken = new URLSearchParams(window.location.search).get('autorizar');
+  // Link do e-mail de autorização (?autorizar=TOKEN[&recusar=1])
+  const urlParams = new URLSearchParams(window.location.search);
+  const authToken = urlParams.get('autorizar');
+  const denyLink = urlParams.get('recusar') === '1';
   if (authToken) {
     // remove o token da barra de endereço (boa prática)
     try { window.history.replaceState(null, '', window.location.pathname); } catch (_) {}
+    if (denyLink) {
+      try { await API.denyAccess(authToken); } catch (_) {}
+      renderAuthorizationResult(false, 'Você informou que não tentou entrar. A entrada foi recusada. Se você não reconhece, troque sua senha com o técnico de TI.');
+      return;
+    }
     try {
       await API.approveAccess(authToken);
       // Se esta mesma aba estava aguardando, entra direto

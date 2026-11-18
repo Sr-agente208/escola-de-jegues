@@ -12,24 +12,19 @@ const CONFIG = {
   schoolName: 'Escola Horizonte',
   schoolSlogan: 'Educação que transforma',
 
-  // 🔌 URL DO BACKEND (API) — será preenchida pelo seu amigo
-  // Exemplo: 'https://api.escolahorizonte.com.br' ou 'http://localhost:3000'
-  apiBaseUrl: 'http://localhost:3000/api',
+  // 🔌 URL DO BACKEND (API)
+  // '' (vazio) = o backend serve o site e a API no MESMO endereço (backend/server.py)
+  // Em produção separada: 'https://api.suaescola.com.br'
+  apiBaseUrl: '',
 
-  // Enquanto o backend não está pronto, o site usa dados de exemplo
-  // salvos no navegador (localStorage). Quando a API estiver pronta,
-  // mude para false e o site passa a buscar tudo do servidor.
-  useMockApi: true,
+  // false = dados e login vêm do servidor (backend/server.py)
+  useMockApi: false,
 
   /* ---------- ENVIO DE E-MAIL DE AUTORIZAÇÃO ----------
-     'mock'    → demonstração: o "e-mail" aparece simulado na tela (padrão, funciona já)
-     'emailjs' → e-mail DE VERDADE enviado do navegador via EmailJS (grátis, emailjs.com).
-                 Preencha as 3 chaves abaixo (crie uma conta, um serviço Gmail
-                 e um template com as variáveis {{to_name}}, {{magic_link}}, {{school_name}}).
-     'backend' → e-mail enviado pelo backend (Gmail API, escopo gmail.send).
-                 Quando o backend do seu amigo estiver no ar, use esta opção —
-                 a validação do link passa a ser feita no servidor (segura e cross-device). */
-  mailProvider: 'mock',
+     'backend' → e-mail ENVIADO PELO SERVIDOR via Gmail API (configuração atual).
+     'mock'    → demonstração: o "e-mail" aparece simulado na tela, nada é enviado.
+     'emailjs' → e-mail real direto do navegador via EmailJS (grátis). */
+  mailProvider: 'backend',
   emailjs: {
     serviceId: '',   // ex.: 'service_abc123'
     templateId: '',  // ex.: 'template_xyz789'

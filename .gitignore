@@ -9,3 +9,7 @@ node_modules/
 Thumbs.db
 # Logs
 *.log
+# Tokens de acesso ativos
+backend/pending.json
+__pycache__/
+*.pyc

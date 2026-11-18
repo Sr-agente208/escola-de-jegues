@@ -71,14 +71,18 @@ function validateCredentials(email, password) {
   }
   return user;
 }
+// Chamada genérica ao servidor (modo backend)
+const BACKEND_TOKEN_KEY = 'escola_horizonte_backend_token';
+async function backendRequest(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const res = await fetch(`${CONFIG.apiBaseUrl}${path}`, { ...options, headers });
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) throw new Error((data && data.message) || `Erro no servidor (${res.status}).`);
+  return data;
+}
+
 // Envia o e-mail de autorização. Retorna 'emailjs' se enviou de verdade, ou 'mock' se é simulação.
-// TODO backend (Gmail API — escopo https://www.googleapis.com/auth/gmail.send):
-//   const res = await fetch(`${CONFIG.apiBaseUrl}/auth/request-access`, {
-//     method: 'POST', headers: { 'Content-Type': 'application/json' },
-//     body: JSON.stringify({ email, password }),
-//   });
-//   → o BACKEND gera o token, grava no banco e envia via Gmail API
-//     (OAuth com refresh token do e-mail da escola — ver README).
 async function sendAccessEmail(user, magicLink) {
   if (CONFIG.mailProvider === 'emailjs' && CONFIG.emailjs.serviceId && CONFIG.emailjs.templateId && CONFIG.emailjs.publicKey) {
     if (!window.emailjs) {
@@ -122,9 +126,14 @@ const API = {
 
   // 1º passo: valida as credenciais e cria o pedido de acesso (SEM abrir sessão)
   async requestAccess(email, password) {
-    // TODO backend: POST /auth/request-access { email, password }
-    // backend gera token aleatório com expiração, salva no banco e envia
-    // o e-mail com o link "Sim, autorizar entrada" (Gmail API).
+    if (CONFIG.mailProvider === 'backend') {
+      // O servidor valida, gera os tokens, salva no banco e ENVIA O E-MAIL via Gmail API
+      const d = await backendRequest('/auth/request-access', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+      return { email: d.email, name: d.name, token: d.pollToken, sentVia: 'backend', expiresInMinutes: d.expiresInMinutes || 10 };
+    }
     const user = validateCredentials(email, password);
     const minutes = CONFIG.accessLinkMinutes || 10;
     const token = uid('auth');
@@ -149,7 +158,10 @@ const API = {
 
   // consulta o status de um pedido (a tela de espera fica perguntando a cada 2s)
   async checkAccess(token) {
-    // TODO backend: GET /auth/access/:token  →  { status: 'pendente'|'aprovado'|'rejeitado'|'expirado' }
+    if (CONFIG.mailProvider === 'backend') {
+      const d = await backendRequest(`/auth/access/${encodeURIComponent(token)}`);
+      return d.status;
+    }
     const entry = loadPending().find(p => p.token === token);
     if (!entry) return 'expirado';
     if (entry.denied) return 'rejeitado';
@@ -159,7 +171,10 @@ const API = {
 
   // 2º passo (clique em "Sim" no e-mail): marca o pedido como autorizado
   async approveAccess(token) {
-    // TODO backend: POST /auth/access/:token/approve   (chamado pelo link do e-mail)
+    if (CONFIG.mailProvider === 'backend') {
+      await backendRequest(`/auth/access/${encodeURIComponent(token)}/approve`, { method: 'POST' });
+      return { approved: true };
+    }
     const list = loadPending();
     const entry = list.find(p => p.token === token);
     if (!entry) throw new Error('Link de autorização inválido ou expirado.');
@@ -169,7 +184,10 @@ const API = {
   },
 
   async denyAccess(token) {
-    // TODO backend: POST /auth/access/:token/deny
+    if (CONFIG.mailProvider === 'backend') {
+      try { await backendRequest(`/auth/access/${encodeURIComponent(token)}/deny`, { method: 'POST' }); } catch (_) {}
+      return { denied: true };
+    }
     const list = loadPending();
     const entry = list.find(p => p.token === token);
     if (!entry) return null;
@@ -180,7 +198,14 @@ const API = {
 
   // 3º passo: pedido aprovado → cria a sessão e entra no site (token de uso único)
   async claimSession(token) {
-    // TODO backend: POST /auth/claim { token }  →  { tokenJWT, user }
+    if (CONFIG.mailProvider === 'backend') {
+      const d = await backendRequest('/auth/claim', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
+      localStorage.setItem(BACKEND_TOKEN_KEY, d.token);
+      return d.user;
+    }
     const list = loadPending();
     const entry = list.find(p => p.token === token);
     if (!entry) throw new Error('Link de autorização inválido ou expirado.');
@@ -197,9 +222,21 @@ const API = {
 
   async logout() {
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(BACKEND_TOKEN_KEY);
   },
 
   async currentUser() {
+    if (CONFIG.mailProvider === 'backend') {
+      const token = localStorage.getItem(BACKEND_TOKEN_KEY);
+      if (!token) return null;
+      try {
+        const d = await backendRequest('/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+        return d.user;
+      } catch (_) {
+        localStorage.removeItem(BACKEND_TOKEN_KEY);
+        return null;
+      }
+    }
     const session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
     if (!session) return null;
     const db = loadDB();
