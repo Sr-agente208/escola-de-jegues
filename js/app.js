@@ -33,6 +33,9 @@ const ICONS = {
   mail: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>',
   send: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>',
   shield: '<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>',
+  eye: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  building: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 11h2M13 11h2M9 15h2M13 15h2M9 7h2"/></svg>',
+  key: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6M15.5 7.5L19 11M19 3l2 2"/></svg>',
 };
 
 /* ---------------- ESTADO GLOBAL ---------------- */
@@ -52,6 +55,7 @@ const state = {
 /* ---------------- PERMISSÕES POR CARGO ---------------- */
 const PERMISSIONS = {
   tecnico:     { teachers: 'manage', students: 'manage', grades: 'edit',   hours: 'manage', classes: 'view', settings: 'manage' },
+  visitante:   { teachers: 'view',   students: 'none',   grades: 'none',   hours: 'none',   classes: 'view' },
   professor:   { teachers: 'view',   students: 'view',   grades: 'edit',   hours: 'own',    classes: 'view' },
   aluno:       { teachers: 'view',   students: 'own',    grades: 'view',   hours: 'none',   classes: 'view' },
   responsavel: { teachers: 'view',   students: 'own',    grades: 'view',   hours: 'none',   classes: 'view' },
@@ -134,6 +138,8 @@ function closeModal() { $('#modal-overlay').classList.remove('open'); }
    TELA DE LOGIN
    ============================================================ */
 function renderLogin() {
+  const info = CONFIG.schoolInfo || {};
+  const tab = state.loginTab || 'entrar';
   document.getElementById('app-root').innerHTML = `
     <div class="login-screen">
       <button type="button" class="login-theme-btn" id="login-theme-btn" title="Alternar tema claro/escuro">${currentSettings().theme === 'dark' ? ICONS.sun : ICONS.moon}</button>
@@ -143,21 +149,70 @@ function renderLogin() {
           <h1>${esc(CONFIG.schoolName)}</h1>
           <p>${esc(CONFIG.schoolSlogan)}</p>
         </div>
-        <div class="login-error" id="login-error"></div>
-        <form id="login-form">
-          <div class="field">
-            <label for="login-email">E-mail</label>
-            <input type="email" id="login-email" placeholder="seu@email.com" required autocomplete="email">
+
+        <div class="login-tabs">
+          <button type="button" class="login-tab ${tab === 'entrar' ? 'active' : ''}" data-login-tab="entrar">${ICONS.key} Entrar</button>
+          <button type="button" class="login-tab ${tab === 'escola' ? 'active' : ''}" data-login-tab="escola">${ICONS.building} A escola</button>
+        </div>
+
+        <div class="login-panel ${tab === 'entrar' ? 'show' : ''}" id="panel-entrar">
+          <div class="login-error" id="login-error"></div>
+          <form id="login-form">
+            <div class="field">
+              <label for="login-email">E-mail</label>
+              <input type="email" id="login-email" placeholder="seu@email.com" required autocomplete="email">
+            </div>
+            <div class="field">
+              <label for="login-password">Senha</label>
+              <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:12px;">Entrar</button>
+          </form>
+          <p class="login-note">🔐 Ao entrar, enviamos um e-mail de autorização. Você só consegue acessar após confirmar no e-mail.</p>
+          <button type="button" class="btn btn-outline" id="visitor-btn" style="width:100%; justify-content:center; margin-top:10px;">${ICONS.eye} Entrar como visitante</button>
+          <p class="login-note" style="margin-top:8px;">Sem cadastro — explore o portal em modo de visualização.</p>
+        </div>
+
+        <div class="login-panel ${tab === 'escola' ? 'show' : ''}" id="panel-escola">
+          <div class="school-info">
+            <p class="school-about">${esc(info.about || '')}</p>
+            <div class="school-info-grid">
+              <div class="school-info-item"><span class="si-label">📍 Endereço</span><span>${esc(info.address || '—')}</span></div>
+              <div class="school-info-item"><span class="si-label">📞 Telefone</span><span>${esc(info.phone || '—')}</span></div>
+              <div class="school-info-item"><span class="si-label">✉️ E-mail</span><span>${esc(info.email || '—')}</span></div>
+              <div class="school-info-item"><span class="si-label">🕘 Horário</span><span>${esc(info.hours || '—')}</span></div>
+              <div class="school-info-item"><span class="si-label">🏫 Direção</span><span>${esc(info.director || '—')}</span></div>
+              <div class="school-info-item"><span class="si-label">🎓 Desde</span><span>${esc(info.since || '—')}</span></div>
+            </div>
+            <button type="button" class="btn btn-primary" id="school-visitor-btn" style="width:100%; justify-content:center;">${ICONS.eye} Entrar como visitante</button>
           </div>
-          <div class="field">
-            <label for="login-password">Senha</label>
-            <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password">
-          </div>
-          <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:12px;">Entrar</button>
-        </form>
-        <p class="login-note">🔐 Ao entrar, enviamos um e-mail de autorização. Você só consegue acessar após confirmar no e-mail.</p>
+        </div>
       </div>
     </div>`;
+
+  // abas "Entrar" / "A escola"
+  document.querySelectorAll('[data-login-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.loginTab = btn.dataset.loginTab;
+      renderLogin();
+    });
+  });
+
+  // visitante: entra sem senha, em modo de visualização
+  const visitorLogin = async () => {
+    try {
+      state.user = await API.visitorLogin();
+      state.view = 'dashboard';
+      renderApp();
+      toast('Bem-vindo, visitante! Você está no modo de visualização.');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+  const visitorBtn = $('#visitor-btn');
+  if (visitorBtn) visitorBtn.addEventListener('click', visitorLogin);
+  const schoolVisitorBtn = $('#school-visitor-btn');
+  if (schoolVisitorBtn) schoolVisitorBtn.addEventListener('click', visitorLogin);
 
   $('#login-form').addEventListener('submit', async e => {
     e.preventDefault();
@@ -309,11 +364,14 @@ const NAV_ITEMS = [
   { id: 'settings',  label: 'Configurações', icon: 'settings' },
 ];
 
-const ROLE_LABELS = { tecnico: 'Técnico de TI', professor: 'Professor(a)', aluno: 'Aluno(a)', responsavel: 'Responsável' };
+const ROLE_LABELS = { tecnico: 'Técnico de TI', professor: 'Professor(a)', aluno: 'Aluno(a)', responsavel: 'Responsável', visitante: 'Visitante (só visualização)' };
+
+const VISITANTE_NAV = ['dashboard', 'teachers', 'classes'];
 
 function visibleNav() {
   const role = state.user.role;
   return NAV_ITEMS.filter(item => {
+    if (role === 'visitante') return VISITANTE_NAV.includes(item.id);
     if (item.id === 'hours' && (role === 'aluno' || role === 'responsavel')) return false;
     return true;
   });
@@ -379,6 +437,8 @@ function navigate(view) {
 }
 
 async function renderView() {
+  // visitante só pode acessar dashboard, professores e turmas
+  if (state.user.role === 'visitante' && !VISITANTE_NAV.includes(state.view)) state.view = 'dashboard';
   const titles = {
     dashboard: 'Dashboard', teachers: 'Professores', students: 'Alunos',
     grades: 'Notas', hours: 'Banco de Horas', classes: 'Turmas', settings: 'Configurações',
@@ -405,6 +465,38 @@ async function viewDashboard() {
   const role = state.user.role;
   const activeTeachers = teachers.filter(t => t.status === 'ativo');
   const pendingHours = hours.filter(h => h.status === 'pendente');
+
+  // ---------- VISITANTE: portal público (só visualização) ----------
+  if (role === 'visitante') {
+    const info = CONFIG.schoolInfo || {};
+    return `
+      <div class="card visitor-hero">
+        <span class="badge orange" style="margin-bottom:10px;">👀 Modo visitante — apenas visualização</span>
+        <h3 style="font-size:22px; margin-bottom:8px;">Bem-vindo(a) à ${esc(CONFIG.schoolName)}!</h3>
+        <p style="color:var(--text-light); line-height:1.7; max-width:640px;">${esc(info.about || '')}</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;">
+          <button class="btn btn-primary" data-nav="teachers">${ICONS.teachers} Ver professores</button>
+          <button class="btn btn-outline" data-nav="classes">${ICONS.classes} Ver turmas</button>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card"><h3>📍 Onde estamos</h3>
+          <p style="font-size:14px; line-height:1.8; color:var(--text);">${esc(info.address || '—')}<br><br>✉️ ${esc(info.email || '—')}<br>📞 ${esc(info.phone || '—')}</p>
+        </div>
+        <div class="card"><h3>🕘 Horário e direção</h3>
+          <p style="font-size:14px; line-height:1.8; color:var(--text);">${esc(info.hours || '—')}<br><br>🏫 Direção: ${esc(info.director || '—')}<br>🎓 Desde ${esc(info.since || '—')}</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>🏫 A escola em números</h3>
+        <div class="stats-grid" style="margin-bottom:0;">
+          ${statCard('blue', ICONS.teachers, activeTeachers.length, 'Professores')}
+          ${statCard('green', ICONS.classes, '2', 'Turmas')}
+          ${statCard('orange', ICONS.students, '8', 'Alunos')}
+          ${statCard('red', ICONS.book, info.since || '1998', 'Fundação')}
+        </div>
+      </div>`;
+  }
 
   if (role === 'tecnico') {
     const avgAll = grades.length ? grades.reduce((a, g) => a + gradeAverage(g), 0) / grades.length : 0;
@@ -504,6 +596,7 @@ async function viewTeachers() {
   const q = state.teacherSearch.toLowerCase();
   const list = teachers.filter(t => t.name.toLowerCase().includes(q) || t.subject.toLowerCase().includes(q));
   const manage = isTecnico();
+  const isVisitor = state.user.role === 'visitante';
 
   return `
     <div class="toolbar">
@@ -514,14 +607,14 @@ async function viewTeachers() {
     <div class="card">
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Professor</th><th>Disciplina</th><th>Turmas</th><th>Telefone</th><th>Admissão</th><th>Status</th>${manage ? '<th>Ações</th>' : ''}</tr></thead>
+          <thead><tr><th>Professor</th><th>Disciplina</th><th>Turmas</th>${isVisitor ? '' : '<th>Telefone</th>'}<th>Admissão</th><th>Status</th>${manage ? '<th>Ações</th>' : ''}</tr></thead>
           <tbody>
             ${list.map(t => `
               <tr>
-                <td><div style="display:flex; align-items:center; gap:10px;"><div class="avatar" style="width:34px;height:34px;font-size:13px;">${initials(t.name)}</div><div><strong>${esc(t.name)}</strong><br><small style="color:var(--text-light)">${esc(t.email)}</small></div></div></td>
+                <td><div style="display:flex; align-items:center; gap:10px;"><div class="avatar" style="width:34px;height:34px;font-size:13px;">${initials(t.name)}</div><div><strong>${esc(t.name)}</strong>${isVisitor ? '' : `<br><small style="color:var(--text-light)">${esc(t.email)}</small>`}</div></div></td>
                 <td>${esc(t.subject)}</td>
                 <td>${esc((t.classes || []).join(', ') || '—')}</td>
-                <td>${esc(t.phone || '—')}</td>
+                ${isVisitor ? '' : `<td>${esc(t.phone || '—')}</td>`}
                 <td>${fmtDate(t.hireDate)}</td>
                 <td>${t.status === 'ativo' ? '<span class="badge green">Ativo</span>' : '<span class="badge red">Demitido</span>'}</td>
                 ${manage ? `<td><div class="action-group">

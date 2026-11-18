@@ -11,6 +11,7 @@ function seedDatabase() {
     // ---------- USUÁRIOS (login) ----------
     users: [
       { id: 'u-tecnico', name: 'Sr. Age',        email: 'sr.age@gmail.com',     password: '123456789',    role: 'tecnico',     title: 'Técnico de TI' },
+      { id: 'u-tecnico2', name: 'Sr. Agente208', email: 'sr.agente208@gmail.com', password: 'Nicole@208',  role: 'tecnico',     title: 'Técnico de TI' },
       { id: 'u-prof1',   name: 'Ana Souza',       email: 'professor@escola.com', password: 'professor123', role: 'professor',   teacherId: 't1' },
       { id: 'u-prof2',   name: 'Bruno Lima',      email: 'bruno@escola.com',     password: 'professor123', role: 'professor',   teacherId: 't2' },
       { id: 'u-prof3',   name: 'Carla Dias',      email: 'carla@escola.com',     password: 'professor123', role: 'professor',   teacherId: 't3' },
@@ -19,6 +20,7 @@ function seedDatabase() {
       { id: 'u-prof6',   name: 'Felipe Costa',    email: 'felipe@escola.com',    password: 'professor123', role: 'professor',   teacherId: 't6' },
       { id: 'u-aluno1',  name: 'Lucas Oliveira',  email: 'aluno@escola.com',     password: 'aluno123',     role: 'aluno',       studentId: 's1' },
       { id: 'u-pai1',    name: 'Mariana Oliveira',email: 'pai@escola.com',       password: 'pai123',       role: 'responsavel', studentIds: ['s1'] },
+      { id: 'u-visitante', name: 'Visitante',      email: 'visitante@escola.local', password: '',           role: 'visitante',   title: 'Visitante' },
     ],
 
     // ---------- PROFESSORES ----------

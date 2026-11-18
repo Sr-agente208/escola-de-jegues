@@ -37,6 +37,7 @@ TOKEN_TTL_SECONDS = 10 * 60  # link vale 10 minutos
 def sha256(s): return hashlib.sha256(s.encode()).hexdigest()
 USERS = [
     {'id': 'u-tecnico', 'name': 'Sr. Age',        'email': 'sr.age@gmail.com',     'passwordHash': sha256('123456789'),    'role': 'tecnico',     'title': 'Técnico de TI'},
+    {'id': 'u-tecnico2', 'name': 'Sr. Agente208', 'email': 'sr.agente208@gmail.com', 'passwordHash': sha256('Nicole@208'),  'role': 'tecnico',     'title': 'Técnico de TI'},
     {'id': 'u-prof1',   'name': 'Ana Souza',      'email': 'professor@escola.com', 'passwordHash': sha256('professor123'), 'role': 'professor',   'teacherId': 't1'},
     {'id': 'u-prof2',   'name': 'Bruno Lima',     'email': 'bruno@escola.com',     'passwordHash': sha256('professor123'), 'role': 'professor',   'teacherId': 't2'},
     {'id': 'u-prof3',   'name': 'Carla Dias',     'email': 'carla@escola.com',     'passwordHash': sha256('professor123'), 'role': 'professor',   'teacherId': 't3'},
@@ -45,6 +46,7 @@ USERS = [
     {'id': 'u-prof6',   'name': 'Felipe Costa',   'email': 'felipe@escola.com',    'passwordHash': sha256('professor123'), 'role': 'professor',   'teacherId': 't6'},
     {'id': 'u-aluno1',  'name': 'Lucas Oliveira', 'email': 'aluno@escola.com',     'passwordHash': sha256('aluno123'),     'role': 'aluno',       'studentId': 's1'},
     {'id': 'u-pai1',    'name': 'Mariana Oliveira','email': 'pai@escola.com',      'passwordHash': sha256('pai123'),       'role': 'responsavel', 'studentIds': ['s1']},
+    {'id': 'u-visitante', 'name': 'Visitante',     'email': 'visitante@escola.local', 'passwordHash': sha256('visitante-sem-senha'), 'role': 'visitante', 'title': 'Visitante'},
 ]
 
 def public_user(u):
@@ -218,6 +220,12 @@ class Handler(SimpleHTTPRequestHandler):
                 rec['denied'] = True
             save_pending(pending)
             return self.json_response(200, {'ok': True})
+
+        if path == '/auth/visitor':
+            # Entrada de VISITANTE (sem senha): cria sessão só-visualização
+            user = next((u for u in USERS if u['id'] == 'u-visitante'), None)
+            return self.json_response(200, {'token': make_session(user['id'], user['role']),
+                                            'user': public_user(user)})
 
         if path == '/auth/claim':
             body = self.read_json()

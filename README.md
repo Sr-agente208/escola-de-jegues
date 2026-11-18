@@ -31,6 +31,17 @@ Ao fazer login, **ninguém entra direto**: o site cria um pedido de acesso e env
 
 Ao implementar o backend, mude `mailProvider` para `'backend'` em `js/config.js`.
 
+## 👀 Modo Visitante (portal público, sem cadastro)
+
+A tela de login tem duas abas:
+- **🔑 Entrar** — login normal com e-mail (com autorização por e-mail).
+- **🏫 A escola** — informações públicas: sobre, endereço, contato, horário, direção e ano de fundação.
+
+Ambas têm o botão **“Entrar como visitante”**, que entra direto em modo de visualização:
+- Vê apenas: **Dashboard da escola, Professores (sem telefone/e-mail) e Turmas**
+- NÃO vê: alunos, notas, banco de horas, configurações nem nenhuma ação de editar
+- As informações públicas ficam em `js/config.js` → `schoolInfo` (edite com os dados reais da escola)
+
 ## ✨ O que o site faz
 
 | Recurso | Técnico de TI | Professor | Aluno | Responsável |

@@ -12,6 +12,18 @@ const CONFIG = {
   schoolName: 'Escola Horizonte',
   schoolSlogan: 'Educação que transforma',
 
+  // 🏫 Informações públicas da escola (aparecem na aba "A escola" da tela de
+  // login e para o modo Visitante). Edite aqui os dados reais da sua escola.
+  schoolInfo: {
+    about: 'A Escola Horizonte é referência em educação de qualidade, com foco no desenvolvimento acadêmico, social e emocional dos estudantes — da Educação Infantil ao Ensino Fundamental.',
+    director: 'Sr. Age',
+    address: 'R. das Palmeiras, 250 — Centro',
+    phone: '(11) 3456-7890',
+    email: 'secretaria@escolahorizonte.com.br',
+    hours: 'Segunda a sexta, 7h às 18h',
+    since: '1998',
+  },
+
   // 🔌 URL DO BACKEND (API)
   // '' (vazio) = o backend serve o site e a API no MESMO endereço (backend/server.py)
   // Em produção separada: 'https://api.suaescola.com.br'

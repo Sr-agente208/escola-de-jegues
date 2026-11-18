@@ -220,6 +220,19 @@ const API = {
     return user;
   },
 
+  // Visitante: entrada sem senha (modo de visualização)
+  async visitorLogin() {
+    if (CONFIG.mailProvider === 'backend') {
+      const d = await backendRequest('/auth/visitor', { method: 'POST', body: '{}' });
+      localStorage.setItem(BACKEND_TOKEN_KEY, d.token);
+      return d.user;
+    }
+    const db = loadDB();
+    const user = db.users.find(u => u.id === 'u-visitante');
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id }));
+    return user;
+  },
+
   async logout() {
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(BACKEND_TOKEN_KEY);
