@@ -223,8 +223,9 @@ class Handler(SimpleHTTPRequestHandler):
             body = self.read_json()
             token = body.get('token') or ''
             pending = load_pending()
-            key = next((k for k, v in pending.items()
-                        if v['pollToken'] == token or v['authorizeToken'] == token), None)
+            # claim só é permitido pelo token da ABA DE LOGIN (pollToken) —
+            # o link do e-mail (authorizeToken) não abre sessão, só autoriza
+            key = next((k for k, v in pending.items() if v['pollToken'] == token), None)
             if not key:
                 return self.json_response(410, {'message': 'Link inválido ou expirado.'})
             rec = pending[key]

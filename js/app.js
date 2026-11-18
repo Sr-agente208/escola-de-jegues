@@ -287,10 +287,10 @@ function renderAuthorizationResult(success, message) {
         <div class="auth-icon ${success ? 'ok' : 'fail'}">${success ? '✅' : '🚫'}</div>
         <h1 class="waiting-title">${success ? 'Entrada autorizada!' : 'Não foi possível entrar'}</h1>
         <p class="waiting-text">${success
-          ? 'Você confirmou o e-mail e sua entrada no portal foi autorizada.'
+          ? 'Você confirmou pelo e-mail e a entrada foi autorizada.'
           : esc(message || 'Link inválido ou expirado.')}</p>
-        <p class="waiting-sub">${success ? 'Se outra aba do site estava aguardando, ela já entrou sozinha. Você também pode fechar esta aba.' : 'Volte ao site e faça login novamente para receber um novo e-mail.'}</p>
-        <button class="btn btn-primary" id="auth-result-btn" style="width:100%; justify-content:center; padding:12px;">${success ? 'Ir para o portal' : 'Voltar para o login'}</button>
+        <p class="waiting-sub">${success ? 'Volte para a aba onde você estava fazendo login — ela entra sozinha. Pode fechar esta aba.' : 'Volte ao site e faça login novamente para receber um novo e-mail.'}</p>
+        <button class="btn btn-primary" id="auth-result-btn" style="width:100%; justify-content:center; padding:12px;">${success ? 'Voltar para a página inicial' : 'Voltar para o login'}</button>
       </div>
     </div>`;
   $('#auth-result-btn').addEventListener('click', () => { state.user ? renderApp() : renderLogin(); });
@@ -1125,16 +1125,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     try {
+      // O clique no e-mail APENAS autoriza — quem abre a sessão é a aba original do site
       await API.approveAccess(authToken);
-      // Se esta mesma aba estava aguardando, entra direto
-      try {
-        state.user = await API.claimSession(authToken);
-        state.view = 'dashboard';
-        renderApp();
-        toast(`Bem-vindo(a), ${state.user.name.split(' ')[0]}! ✅ Entrada autorizada por e-mail.`);
-      } catch (_) {
-        renderAuthorizationResult(true);
-      }
+      renderAuthorizationResult(true);
     } catch (err) {
       renderAuthorizationResult(false, err.message);
     }
