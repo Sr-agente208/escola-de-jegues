@@ -31,10 +31,11 @@ class StoreTests(unittest.TestCase):
     def test_activate_is_conditional_and_hash_is_not_plain_password(self):
         store = MemberStore('https://project.supabase.co', 'test-key')
         with patch('urllib.request.urlopen', return_value=FakeResponse([])) as send:
-            self.assertIsNone(store.activate('member-id', 'some-hash'))
+            self.assertIsNone(store.activate('member-id', 'some-hash', 2))
             req = send.call_args.args[0]
             self.assertIn('status=eq.pendente', req.full_url)
             self.assertIn('password_hash=is.null', req.full_url)
+            self.assertIn('session_version=eq.2', req.full_url)
             self.assertEqual(req.get_method(), 'PATCH')
             self.assertEqual(json.loads(req.data), {'status': 'ativo', 'password_hash': 'some-hash'})
 

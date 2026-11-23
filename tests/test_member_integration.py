@@ -12,17 +12,17 @@ from backend import server
 
 class FakeStore:
     def __init__(self):
-        self.items = {'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa': {'id': 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'nome': 'Admin', 'email': 'admin@example.com', 'cargo': 'tecnico', 'status': 'pendente', 'password_hash': None}}
+        self.items = {'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa': {'id': 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'nome': 'Admin', 'email': 'admin@example.com', 'cargo': 'tecnico', 'status': 'pendente', 'password_hash': None, 'session_version': 1}}
     def by_id(self, uid): return self.items.get(uid)
     def by_email(self, email): return next((x for x in self.items.values() if x['email'] == email), None)
     def list(self): return [{k:v for k,v in x.items() if k != 'password_hash'} for x in self.items.values()]
-    def activate(self, uid, pwd):
+    def activate(self, uid, pwd, version):
         m = self.by_id(uid)
-        if not m or m['status'] != 'pendente' or m['password_hash']: return None
+        if not m or m['status'] != 'pendente' or m['password_hash'] or m['session_version'] != version: return None
         m.update(status='ativo', password_hash=pwd); return m
     def create(self, name, email, role):
         uid = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
-        m = {'id': uid, 'nome': name, 'email': email, 'cargo': role, 'status': 'pendente', 'password_hash': None}
+        m = {'id': uid, 'nome': name, 'email': email, 'cargo': role, 'status': 'pendente', 'password_hash': None, 'session_version': 1}
         self.items[uid] = m; return m
     def update(self, uid, changes):
         self.items[uid].update(changes); return self.items[uid]
@@ -80,6 +80,24 @@ class FullFlowTests(unittest.TestCase):
         self.store.items['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']['status'] = 'bloqueado'
         self.assertEqual(self.req('/api/members', token=token)[0], 403)
         self.assertEqual(self.req('/auth/me', token=token)[0], 401)
+    def test_reset_revokes_existing_sessions_and_old_pending_requests(self):
+        token = self.activate_admin()
+        self.assertEqual(self.req('/auth/me', token=token)[0], 200)
+        code, result = self.req('/auth/request-access', {'email':'admin@example.com','password':'senha-segura-de-teste'})
+        self.assertEqual(code, 202)
+        poll = result['pollToken']
+        auth = self.links[-1][2].split('autorizar=')[1]
+        self.assertEqual(self.req('/auth/access/'+auth+'/approve', {})[0], 200)
+        member = self.store.items['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']
+        member.update(status='pendente', password_hash=None, session_version=2)
+        self.assertEqual(self.req('/auth/me', token=token)[0], 401)
+        self.assertEqual(self.req('/auth/claim', {'token':poll})[0], 403)
+        new_token = self.activate_admin()
+        self.assertEqual(self.req('/auth/me', token=new_token)[0], 200)
+        self.assertEqual(self.req('/auth/me', token=token)[0], 401)
+        old_token = server.make_session('member:'+member['id'], 'tecnico')
+        self.assertEqual(self.req('/auth/me', token=old_token)[0], 401)
+
     def test_incorrect_password_and_short_initial_password(self):
         self.assertEqual(self.req('/auth/request-access', {'email':'admin@example.com','password':'curta'})[0], 400)
         self.activate_admin()

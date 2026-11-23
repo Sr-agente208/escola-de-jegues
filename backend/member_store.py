@@ -48,8 +48,8 @@ class MemberStore:
         rows = self.request('PATCH', {'id': 'eq.' + member_id}, changes)
         return rows[0] if rows else None
 
-    def activate(self, member_id, password_hash):
-        # A operação condicional impede que duas tentativas configurem a mesma conta.
-        rows = self.request('PATCH', {'id': 'eq.' + member_id, 'status': 'eq.pendente', 'password_hash': 'is.null'},
+    def activate(self, member_id, password_hash, session_version):
+        # A operação condicional impede reuso de pedidos antigos ou concorrentes.
+        rows = self.request('PATCH', {'id': 'eq.' + member_id, 'status': 'eq.pendente', 'password_hash': 'is.null', 'session_version': 'eq.' + str(session_version)},
                             {'status': 'ativo', 'password_hash': password_hash})
         return rows[0] if rows else None

@@ -109,8 +109,10 @@ def save_pending(data):
 def b64url(b): return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
 def b64url_dec(s): return base64.urlsafe_b64decode(s + '=' * (-len(s) % 4))
 
-def make_session(user_id, role):
+def make_session(user_id, role, session_version=None):
     payload = {'userId': user_id, 'role': role, 'exp': int(time.time()) + 8 * 3600}
+    if session_version is not None:
+        payload['sessionVersion'] = session_version
     body = b64url(json.dumps(payload).encode())
     sig = b64url(hmac.new(JWT_SECRET.encode(), body.encode(), hashlib.sha256).digest())
     return f'{body}.{sig}'
@@ -219,6 +221,8 @@ class Handler(SimpleHTTPRequestHandler):
         member = member_store().by_id(uid[7:])
         if not member or member.get('status') != 'ativo':
             return None
+        if payload.get('sessionVersion') is None or payload['sessionVersion'] != member.get('session_version'):
+            return None
         return member
 
     # ----- rotas da API -----
@@ -275,6 +279,7 @@ class Handler(SimpleHTTPRequestHandler):
             email = (body.get('email') or '').strip().lower()
             password = body.get('password') or ''
             new_hash = None
+            member_version = None
             if MEMBERS_MODE:
                 retry = reserve_login_attempt(email, self.client_address[0])
                 if retry:
@@ -293,6 +298,7 @@ class Handler(SimpleHTTPRequestHandler):
                 elif member.get('status') != 'ativo' or not verify_password(password, member.get('password_hash')):
                     return self.json_response(401, {'message': 'E-mail ou senha incorretos.'})
                 user = member_public(member)
+                member_version = member['session_version']
             else:
                 user = next((u for u in USERS if u['email'].lower() == email), None)
                 if not user or not isinstance(password, str) or not hmac.compare_digest(user.get('passwordHash', ''), sha256(password)):
@@ -310,6 +316,7 @@ class Handler(SimpleHTTPRequestHandler):
                 'expiresAt': int((time.time() + TOKEN_TTL_SECONDS) * 1000),
                 'approved': False, 'denied': False, 'used': False,
                 'newPasswordHash': new_hash,
+                'sessionVersion': member_version,
             }
             try:
                 site_url = ENV['PUBLIC_SITE_URL'].rstrip('/') if MEMBERS_MODE else self.base_url()
@@ -363,14 +370,21 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_response(403, {'message': 'Ainda não autorizado. Clique em "Sim" no e-mail.'})
             if rec['used']:
                 return self.json_response(410, {'message': 'Este link já foi utilizado.'})
+            session_version = None
             if rec['userId'].startswith('member:'):
                 if not MEMBERS_MODE: return self.json_response(403, {'message': 'Acesso indisponível.'})
                 store = member_store()
                 uid = rec['userId'][7:]
-                member = store.activate(uid, rec['newPasswordHash']) if rec.get('newPasswordHash') else store.by_id(uid)
+                member = store.by_id(uid)
+                version = rec.get('sessionVersion')
+                if not member or version is None or version != member.get('session_version'):
+                    return self.json_response(403, {'message': 'Pedido de acesso antigo. Inicie uma nova tentativa.'})
+                if rec.get('newPasswordHash'):
+                    member = store.activate(uid, rec['newPasswordHash'], version)
                 if not member or member.get('status') != 'ativo':
                     return self.json_response(403, {'message': 'Conta inválida, bloqueada ou já ativada.'})
                 user = member_public(member)
+                session_version = member['session_version']
             else:
                 if MEMBERS_MODE: return self.json_response(403, {'message': 'Acesso antigo desativado.'})
                 user = next((u for u in USERS if u['id'] == rec['userId']), None)
@@ -378,7 +392,7 @@ class Handler(SimpleHTTPRequestHandler):
             rec['used'] = True
             rec.pop('newPasswordHash', None)
             save_pending(pending)
-            return self.json_response(200, {'token': make_session(user['id'], user['role']),
+            return self.json_response(200, {'token': make_session(user['id'], user['role'], session_version),
                                             'user': public_user(user)})
 
         return self.json_response(404, {'message': 'Rota não encontrada.'})
@@ -429,7 +443,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json_response(200, {'user': public_user(user)})
 
         if path == '/api/health':
-            return self.json_response(200, {'ok': True, 'service': 'escola-de-jegues', 'gmail': bool(ENV.get('GMAIL_REFRESH_TOKEN'))})
+            return self.json_response(200, {'ok': True, 'service': 'escola-de-jegues', 'gmail': bool(ENV.get('GMAIL_REFRESH_TOKEN')), 'memberSessionVersion': 2})
 
         # nunca expõe o backend nem o Git via HTTP
         if any(path == '/' + folder or path.startswith('/' + folder + '/') for folder in ('backend', '.git', 'database', 'tests')):
