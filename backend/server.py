@@ -24,6 +24,11 @@ def load_env():
             if line and not line.startswith('#') and '=' in line:
                 k, v = line.split('=', 1)
                 env[k.strip()] = v.strip()
+    # Variáveis de ambiente reais (Render, Heroku, Docker...) têm precedência
+    # sobre o arquivo .env — é assim que os secrets configurados no painel chegam.
+    for k, v in os.environ.items():
+        if v:
+            env[k] = v
     return env
 
 ENV = load_env()
