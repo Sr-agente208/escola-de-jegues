@@ -287,6 +287,10 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/health':
             return self.json_response(200, {'ok': True, 'service': 'escola-de-jegues', 'gmail': bool(ENV.get('GMAIL_REFRESH_TOKEN'))})
 
+        # nunca expõe o backend nem o Git via HTTP
+        if path == '/backend' or path.startswith('/backend/') or path == '/.git' or path.startswith('/.git/'):
+            return self.send_error(404)
+
         # arquivos estáticos (com tratamento de path traversal do http.server)
         super().do_GET()
 
