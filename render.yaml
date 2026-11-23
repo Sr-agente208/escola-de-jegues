@@ -17,6 +17,15 @@ services:
         sync: false
       - key: GMAIL_SENDER
         sync: false
+      # Habilitar somente depois de configurar todas as variáveis no painel.
+      - key: MEMBERS_MODE
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PUBLIC_SITE_URL
+        sync: false
       # Render gera um JWT_SECRET forte sozinho:
       - key: JWT_SECRET
         generateValue: true

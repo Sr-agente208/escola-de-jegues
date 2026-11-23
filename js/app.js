@@ -55,6 +55,7 @@ const state = {
 /* ---------------- PERMISSÕES POR CARGO ---------------- */
 const PERMISSIONS = {
   tecnico:     { teachers: 'manage', students: 'manage', grades: 'edit',   hours: 'manage', classes: 'view', settings: 'manage' },
+  diretoria:   { teachers: 'manage', students: 'manage', grades: 'edit',   hours: 'manage', classes: 'view', settings: 'manage' },
   visitante:   { teachers: 'view',   students: 'none',   grades: 'none',   hours: 'none',   classes: 'view' },
   professor:   { teachers: 'view',   students: 'view',   grades: 'edit',   hours: 'own',    classes: 'view' },
   aluno:       { teachers: 'view',   students: 'own',    grades: 'view',   hours: 'none',   classes: 'view' },
@@ -65,7 +66,8 @@ function can(action) {
   return PERMISSIONS[state.user.role]?.[action] === 'edit' || PERMISSIONS[state.user.role]?.[action] === 'manage';
 }
 function isTecnico() { return state.user.role === 'tecnico'; }
-function isStaff() { return ['tecnico', 'professor'].includes(state.user.role); }
+function isStaff() { return ['tecnico', 'diretoria', 'professor'].includes(state.user.role); }
+function isMemberAdmin() { return ['tecnico', 'diretoria'].includes(state.user.role); }
 
 /* ---------------- UTILITÁRIOS ---------------- */
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -168,7 +170,7 @@ function renderLogin() {
             </div>
             <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:12px;">Entrar</button>
           </form>
-          <p class="login-note">🔐 Ao entrar, enviamos um e-mail de autorização. Você só consegue acessar após confirmar no e-mail.</p>
+          <p class="login-note">🔐 Ao entrar, enviamos um e-mail de autorização. No primeiro acesso de um membro cadastrado, escolha uma senha nova com pelo menos 12 caracteres. Você só consegue acessar após confirmar no e-mail.</p>
           <button type="button" class="btn btn-outline" id="visitor-btn" style="width:100%; justify-content:center; margin-top:10px;">${ICONS.eye} Entrar como visitante</button>
           <p class="login-note" style="margin-top:8px;">Sem cadastro — explore o portal em modo de visualização.</p>
         </div>
@@ -361,10 +363,11 @@ const NAV_ITEMS = [
   { id: 'grades',    label: 'Notas', icon: 'grades' },
   { id: 'hours',     label: 'Banco de Horas', icon: 'hours' },
   { id: 'classes',   label: 'Turmas', icon: 'classes' },
+  { id: 'members',   label: 'Membros', icon: 'teachers' },
   { id: 'settings',  label: 'Configurações', icon: 'settings' },
 ];
 
-const ROLE_LABELS = { tecnico: 'Técnico de TI', professor: 'Professor(a)', aluno: 'Aluno(a)', responsavel: 'Responsável', visitante: 'Visitante (só visualização)' };
+const ROLE_LABELS = { tecnico: 'Técnico de TI', diretoria: 'Diretoria', professor: 'Professor(a)', aluno: 'Aluno(a)', responsavel: 'Responsável', visitante: 'Visitante (só visualização)' };
 
 const VISITANTE_NAV = ['dashboard', 'teachers', 'classes'];
 
@@ -372,6 +375,7 @@ function visibleNav() {
   const role = state.user.role;
   return NAV_ITEMS.filter(item => {
     if (role === 'visitante') return VISITANTE_NAV.includes(item.id);
+    if (item.id === 'members' && !isMemberAdmin()) return false;
     if (item.id === 'hours' && (role === 'aluno' || role === 'responsavel')) return false;
     return true;
   });
@@ -439,20 +443,64 @@ function navigate(view) {
 async function renderView() {
   // visitante só pode acessar dashboard, professores e turmas
   if (state.user.role === 'visitante' && !VISITANTE_NAV.includes(state.view)) state.view = 'dashboard';
+  if (state.view === 'members' && !isMemberAdmin()) state.view = 'dashboard';
   const titles = {
     dashboard: 'Dashboard', teachers: 'Professores', students: 'Alunos',
-    grades: 'Notas', hours: 'Banco de Horas', classes: 'Turmas', settings: 'Configurações',
+    grades: 'Notas', hours: 'Banco de Horas', classes: 'Turmas', members: 'Membros', settings: 'Configurações',
   };
   $('#page-title').textContent = titles[state.view] || '';
   const content = $('#content');
   content.innerHTML = '<div class="empty-state">Carregando...</div>';
   try {
-    const renderers = { dashboard: viewDashboard, teachers: viewTeachers, students: viewStudents, grades: viewGrades, hours: viewHours, classes: viewClasses, settings: viewSettings };
+    const renderers = { dashboard: viewDashboard, teachers: viewTeachers, students: viewStudents, grades: viewGrades, hours: viewHours, classes: viewClasses, members: viewMembers, settings: viewSettings };
     content.innerHTML = await renderers[state.view]();
     bindViewEvents();
   } catch (err) {
     content.innerHTML = `<div class="empty-state">⚠️ Erro ao carregar: ${esc(err.message)}</div>`;
   }
+}
+
+/* ============================================================
+   MEMBROS — contas reais no servidor, não dados locais de exemplo
+   ============================================================ */
+async function viewMembers() {
+  const members = await API.getMembers();
+  const roles = ['tecnico', 'diretoria', 'professor', 'aluno', 'responsavel'];
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
+      <div><h3>👥 Membros do portal</h3><p class="form-hint">Técnico e diretoria podem adicionar pessoas e escolher cargos.</p></div>
+      <button class="btn btn-primary" id="add-member-btn">${ICONS.plus} Adicionar membro</button>
+    </div>
+    <p class="form-hint">Após o cadastro, informe à pessoa que ela deve acessar o site, digitar seu e-mail e escolher uma senha nova de pelo menos 12 caracteres. A conta só será ativada após autorizar o e-mail.</p>
+    <div style="overflow:auto"><table class="data-table"><thead><tr><th>Nome</th><th>E-mail</th><th>Cargo</th><th>Situação</th><th>Ações</th></tr></thead><tbody>
+    ${members.map(m => `<tr><td>${esc(m.nome)}</td><td>${esc(m.email)}</td><td>${esc(ROLE_LABELS[m.cargo] || m.cargo)}</td><td>${esc(m.status)}</td><td>${m.status !== 'pendente' && ('member:' + m.id) !== state.user.id ? `<button class="btn btn-outline btn-sm" data-edit-member="${esc(m.id)}">Editar</button>` : '—'}</td></tr>`).join('') || '<tr><td colspan="5">Nenhum membro cadastrado.</td></tr>'}
+    </tbody></table></div></div>`;
+}
+
+async function handleAddMember() {
+  openModal('Adicionar membro', `
+    <div class="field"><label>Nome</label><input name="name" required maxlength="150"></div>
+    <div class="field"><label>E-mail</label><input name="email" type="email" required maxlength="254"></div>
+    <div class="field"><label>Cargo</label><select name="role" required>
+      <option value="professor">Professor(a)</option><option value="aluno">Aluno(a)</option>
+      <option value="responsavel">Responsável</option><option value="diretoria">Diretoria</option><option value="tecnico">Técnico de TI</option>
+    </select></div>`, async form => {
+      await API.createMember(Object.fromEntries(form.entries()));
+      toast('Membro cadastrado. Ele deve ativar a conta pelo próprio e-mail.');
+      await renderView();
+    });
+}
+
+async function handleEditMember(id) {
+  const member = (await API.getMembers()).find(m => m.id === id);
+  if (!member) return toast('Membro não encontrado.', 'error');
+  const options = ['tecnico', 'diretoria', 'professor', 'aluno', 'responsavel'];
+  openModal('Editar cargo e acesso', `<p>${esc(member.nome)} · ${esc(member.email)}</p>
+    <div class="field"><label>Cargo</label><select name="role">${options.map(r => `<option value="${r}" ${member.cargo === r ? 'selected' : ''}>${esc(ROLE_LABELS[r])}</option>`).join('')}</select></div>
+    <div class="field"><label>Situação</label><select name="status"><option value="ativo" ${member.status === 'ativo' ? 'selected' : ''}>Ativo</option><option value="bloqueado" ${member.status === 'bloqueado' ? 'selected' : ''}>Bloqueado</option></select></div>`, async form => {
+      await API.updateMember(id, Object.fromEntries(form.entries()));
+      toast('Membro atualizado.'); await renderView();
+    });
 }
 
 /* ============================================================
@@ -498,7 +546,7 @@ async function viewDashboard() {
       </div>`;
   }
 
-  if (role === 'tecnico') {
+  if (role === 'tecnico' || role === 'diretoria') {
     const avgAll = grades.length ? grades.reduce((a, g) => a + gradeAverage(g), 0) / grades.length : 0;
     return `
       <div class="stats-grid">
@@ -1160,6 +1208,11 @@ function bindViewEvents() {
   if (gf) gf.addEventListener('change', e => { state.gradeFilter = e.target.value; renderView(); });
   const hf = $('#hour-filter');
   if (hf) hf.addEventListener('change', e => { state.hourFilter = e.target.value; renderView(); });
+
+  // membros
+  const amb = $('#add-member-btn');
+  if (amb) amb.addEventListener('click', handleAddMember);
+  document.querySelectorAll('[data-edit-member]').forEach(b => b.addEventListener('click', () => handleEditMember(b.dataset.editMember)));
 
   // professores
   const atb = $('#add-teacher-btn');

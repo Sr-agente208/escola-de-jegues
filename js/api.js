@@ -256,6 +256,21 @@ const API = {
     return db.users.find(u => u.id === session.userId) || null;
   },
 
+  /* ---------- MEMBROS (somente após autenticação no servidor) ---------- */
+  async getMembers() {
+    const token = localStorage.getItem(BACKEND_TOKEN_KEY) || '';
+    const result = await backendRequest('/api/members', { headers: { Authorization: `Bearer ${token}` } });
+    return result.members;
+  },
+  async createMember(data) {
+    const token = localStorage.getItem(BACKEND_TOKEN_KEY) || '';
+    return backendRequest('/api/members', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(data) });
+  },
+  async updateMember(id, data) {
+    const token = localStorage.getItem(BACKEND_TOKEN_KEY) || '';
+    return backendRequest(`/api/members/${encodeURIComponent(id)}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(data) });
+  },
+
   /* ---------- PROFESSORES ---------- */
   async getTeachers() {
     // TODO backend: GET /teachers

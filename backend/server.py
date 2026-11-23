@@ -10,6 +10,14 @@
 import json, os, re, hmac, hashlib, base64, secrets, time, urllib.request, urllib.parse, mimetypes
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
+import threading
+import html as html_lib
+try:
+    from .member_store import MemberStore, MemberStoreError
+    from .member_security import ROLES, can_manage_members, normalise_email, hash_password, verify_password
+except ImportError:
+    from member_store import MemberStore, MemberStoreError
+    from member_security import ROLES, can_manage_members, normalise_email, hash_password, verify_password
 
 ROOT = Path(__file__).resolve().parent.parent          # pasta do site
 ENV_PATH = Path(__file__).resolve().parent / '.env'
@@ -36,22 +44,37 @@ PORT = int(os.environ.get('PORT', ENV.get('PORT', '3001')))
 JWT_SECRET = ENV.get('JWT_SECRET') or secrets.token_hex(32)
 GMAIL_SENDER = ENV.get('GMAIL_SENDER', 'sr.agente208@gmail.com')
 TOKEN_TTL_SECONDS = 10 * 60  # link vale 10 minutos
+MEMBERS_MODE = ENV.get('MEMBERS_MODE', '').lower() == 'true'
+PENDING_LOCK = threading.RLock()
+LOGIN_ATTEMPTS = {}
 
-# ---------- "Banco" de demonstração (usuários) ----------
-# Senhas em SHA-256 APENAS para demonstração (em produção use bcrypt).
+
+def member_store():
+    return MemberStore(ENV.get('SUPABASE_URL', ''), ENV.get('SUPABASE_SERVICE_ROLE_KEY', ''))
+
+
+def member_public(member):
+    return {'id': 'member:' + str(member['id']), 'name': member['nome'],
+            'email': member['email'], 'role': member['cargo']}
+
+
+def allow_attempt(key, limit=10):
+    now = time.time()
+    # Limite local ao processo, não substitui rate limit de infraestrutura.
+    recent = [t for t in LOGIN_ATTEMPTS.get(key, []) if t > now - 600]
+    if len(recent) >= limit:
+        LOGIN_ATTEMPTS[key] = recent
+        return False
+    recent.append(now)
+    LOGIN_ATTEMPTS[key] = recent
+    return True
+
+# As antigas senhas demonstrativas foram removidas. Apenas o visitante não
+# exige conta. As contas reais só são aceitas em MEMBERS_MODE.
 def sha256(s): return hashlib.sha256(s.encode()).hexdigest()
 USERS = [
-    {'id': 'u-tecnico', 'name': 'Sr. Age',        'email': 'sr.age@gmail.com',     'passwordHash': sha256('123456789'),    'role': 'tecnico',     'title': 'Técnico de TI'},
-    {'id': 'u-tecnico2', 'name': 'Sr. Agente208', 'email': 'sr.agente208@gmail.com', 'passwordHash': sha256('Nicole@208'),  'role': 'tecnico',     'title': 'Técnico de TI'},
-    {'id': 'u-prof1',   'name': 'Ana Souza',      'email': 'professor@escola.com', 'passwordHash': sha256('professor123'), 'role': 'professor',   'teacherId': 't1'},
-    {'id': 'u-prof2',   'name': 'Bruno Lima',     'email': 'bruno@escola.com',     'passwordHash': sha256('professor123'), 'role': 'professor',   'teacherId': 't2'},
-    {'id': 'u-prof3',   'name': 'Carla Dias',     'email': 'carla@escola.com',     'passwordHash': sha256('professor123'), 'role': 'professor',   'teacherId': 't3'},
-    {'id': 'u-prof4',   'name': 'Diego Ramos',    'email': 'diego@escola.com',     'passwordHash': sha256('professor123'), 'role': 'professor',   'teacherId': 't4'},
-    {'id': 'u-prof5',   'name': 'Elisa Prado',    'email': 'elisa@escola.com',     'passwordHash': sha256('professor123'), 'role': 'professor',   'teacherId': 't5'},
-    {'id': 'u-prof6',   'name': 'Felipe Costa',   'email': 'felipe@escola.com',    'passwordHash': sha256('professor123'), 'role': 'professor',   'teacherId': 't6'},
-    {'id': 'u-aluno1',  'name': 'Lucas Oliveira', 'email': 'aluno@escola.com',     'passwordHash': sha256('aluno123'),     'role': 'aluno',       'studentId': 's1'},
-    {'id': 'u-pai1',    'name': 'Mariana Oliveira','email': 'pai@escola.com',      'passwordHash': sha256('pai123'),       'role': 'responsavel', 'studentIds': ['s1']},
-    {'id': 'u-visitante', 'name': 'Visitante',     'email': 'visitante@escola.local', 'passwordHash': sha256('visitante-sem-senha'), 'role': 'visitante', 'title': 'Visitante'},
+    {'id': 'u-visitante', 'name': 'Visitante', 'email': 'visitante@escola.local',
+     'role': 'visitante', 'title': 'Visitante'},
 ]
 
 def public_user(u):
@@ -68,7 +91,9 @@ def load_pending():
     return {k: v for k, v in data.items() if v['expiresAt'] > now}
 
 def save_pending(data):
-    PENDING_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    temporary = PENDING_PATH.with_suffix('.tmp')
+    temporary.write_text(json.dumps(data, ensure_ascii=False))
+    os.replace(temporary, PENDING_PATH)
 
 # ---------- Sessões (token HMAC assinado, 8h) ----------
 def b64url(b): return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
@@ -103,7 +128,7 @@ def gmail_access_token():
         'https://oauth2.googleapis.com/token', data=data), timeout=20))
     return resp['access_token']
 
-def send_access_email(to_email, to_name, approve_link, deny_link):
+def send_access_email(to_email, to_name, approve_link, deny_link, first_access=False):
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
     access = gmail_access_token()
@@ -111,12 +136,14 @@ def send_access_email(to_email, to_name, approve_link, deny_link):
     msg['Subject'] = '🔐 Autorizar entrada no portal da Escola de Jegues'
     msg['From'] = f'Escola de Jegues <{GMAIL_SENDER}>'
     msg['To'] = to_email
-    first_name = to_name.split()[0]
+    first_name = html_lib.escape(to_name.split()[0])
+    setup_warning = ('<p><strong>Primeiro acesso: esta autorização também vai definir a senha digitada na tela de login. Só aprove se foi você quem iniciou o acesso.</strong></p>' if first_access else '')
     html = f"""<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:28px;border:1px solid #e5e7eb;border-radius:14px;background:#ffffff">
   <div style="text-align:center;font-size:42px">🏫</div>
   <h2 style="color:#1e4fa3;text-align:center;margin:8px 0 18px">Escola de Jegues</h2>
   <p>Olá, <strong>{first_name}</strong>!</p>
   <p>Alguém tentou entrar no portal da escola com a sua conta. Se foi você, clique no botão abaixo para autorizar a entrada:</p>
+  {setup_warning}
   <p style="text-align:center;margin:26px 0">
     <a href="{approve_link}" style="background:#1e9e62;color:#fff;padding:14px 30px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:16px">✅ Sim, autorizar entrada</a>
   </p>
@@ -162,7 +189,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def read_json(self):
         length = int(self.headers.get('Content-Length', '0'))
-        if length <= 0: return {}
+        if length <= 0 or length > 16384: return {}
         try:
             return json.loads(self.rfile.read(length))
         except Exception:
@@ -173,17 +200,91 @@ class Handler(SimpleHTTPRequestHandler):
         host = self.headers.get('X-Forwarded-Host') or self.headers.get('Host', f'localhost:{PORT}')
         return f'{proto}://{host}'
 
+    def authenticated_member(self):
+        auth = self.headers.get('Authorization', '')
+        payload = read_session(auth[7:] if auth.startswith('Bearer ') else '')
+        uid = payload.get('userId', '') if payload else ''
+        if not isinstance(uid, str) or not uid.startswith('member:'):
+            return None
+        member = member_store().by_id(uid[7:])
+        if not member or member.get('status') != 'ativo':
+            return None
+        return member
+
     # ----- rotas da API -----
     def do_POST(self):
+        # Serializa leitura/gravação do arquivo de pedidos neste processo.
+        with PENDING_LOCK:
+            try:
+                return self.do_POST_locked()
+            except MemberStoreError:
+                return self.json_response(503, {'message': 'Banco de membros indisponível. Avise o técnico.'})
+
+    def do_POST_locked(self):
         path = self.path.split('?')[0].rstrip('/') or '/'
+
+        if path == '/api/members':
+            actor = self.authenticated_member() if MEMBERS_MODE else None
+            if not can_manage_members(actor):
+                return self.json_response(403, {'message': 'Somente técnicos e diretoria podem gerenciar membros.'})
+            data = self.read_json()
+            try:
+                email = normalise_email(data.get('email'))
+                name = data.get('name', '').strip()
+                role = data.get('role')
+                if not 1 <= len(name) <= 150 or role not in ROLES: raise ValueError()
+            except (ValueError, TypeError, AttributeError):
+                return self.json_response(400, {'message': 'Informe nome, e-mail e cargo válidos.'})
+            store = member_store()
+            if store.by_email(email):
+                return self.json_response(409, {'message': 'Este e-mail já está cadastrado.'})
+            created = store.create(name, email, role)
+            return self.json_response(201, {'member': {k: created[k] for k in ('id', 'nome', 'email', 'cargo', 'status')}})
+
+        member_change = re.fullmatch(r'/api/members/([0-9a-fA-F-]{36})', path)
+        if member_change:
+            actor = self.authenticated_member() if MEMBERS_MODE else None
+            if not can_manage_members(actor):
+                return self.json_response(403, {'message': 'Somente técnicos e diretoria podem gerenciar membros.'})
+            if member_change.group(1) == str(actor['id']):
+                return self.json_response(400, {'message': 'Outro administrador precisa alterar seu próprio acesso.'})
+            data = self.read_json()
+            role, status = data.get('role'), data.get('status')
+            if role not in ROLES or status not in ('ativo', 'bloqueado'):
+                return self.json_response(400, {'message': 'Cargo ou situação inválidos.'})
+            store = member_store()
+            target = store.by_id(member_change.group(1))
+            if not target: return self.json_response(404, {'message': 'Membro não encontrado.'})
+            if target.get('status') == 'pendente':
+                return self.json_response(400, {'message': 'O membro precisa ativar a conta por e-mail primeiro.'})
+            store.update(member_change.group(1), {'cargo': role, 'status': status})
+            return self.json_response(200, {'ok': True})
 
         if path == '/auth/request-access':
             body = self.read_json()
             email = (body.get('email') or '').strip().lower()
             password = body.get('password') or ''
-            user = next((u for u in USERS if u['email'].lower() == email), None)
-            if not user or not hmac.compare_digest(user['passwordHash'], sha256(password)):
-                return self.json_response(401, {'message': 'E-mail ou senha incorretos.'})
+            new_hash = None
+            if MEMBERS_MODE:
+                if not allow_attempt('email:' + email) or not allow_attempt('ip:' + self.client_address[0], 100):
+                    return self.json_response(429, {'message': 'Muitas tentativas. Aguarde 10 minutos.'})
+                site_url = ENV.get('PUBLIC_SITE_URL', '')
+                if not site_url.startswith('https://'):
+                    return self.json_response(503, {'message': 'Endereço público do portal não configurado.'})
+                member = member_store().by_email(email)
+                if not member or member.get('status') == 'bloqueado':
+                    return self.json_response(401, {'message': 'E-mail ou senha incorretos.'})
+                if member.get('status') == 'pendente' and not member.get('password_hash'):
+                    try: new_hash = hash_password(password)
+                    except ValueError:
+                        return self.json_response(400, {'message': 'No primeiro acesso, escolha uma senha com pelo menos 12 caracteres.'})
+                elif member.get('status') != 'ativo' or not verify_password(password, member.get('password_hash')):
+                    return self.json_response(401, {'message': 'E-mail ou senha incorretos.'})
+                user = member_public(member)
+            else:
+                user = next((u for u in USERS if u['email'].lower() == email), None)
+                if not user or not isinstance(password, str) or not hmac.compare_digest(user.get('passwordHash', ''), sha256(password)):
+                    return self.json_response(401, {'message': 'E-mail ou senha incorretos.'})
 
             authorize_token = secrets.token_urlsafe(32)
             poll_token = secrets.token_urlsafe(32)
@@ -196,14 +297,16 @@ class Handler(SimpleHTTPRequestHandler):
                 'userId': user['id'], 'email': user['email'], 'name': user['name'],
                 'expiresAt': int((time.time() + TOKEN_TTL_SECONDS) * 1000),
                 'approved': False, 'denied': False, 'used': False,
+                'newPasswordHash': new_hash,
             }
             try:
-                link = f'{self.base_url()}/?autorizar={authorize_token}'
-                deny_link = f'{self.base_url()}/?autorizar={authorize_token}&recusar=1'
-                send_access_email(user['email'], user['name'], link, deny_link)
+                site_url = ENV['PUBLIC_SITE_URL'].rstrip('/') if MEMBERS_MODE else self.base_url()
+                link = f'{site_url}/?autorizar={authorize_token}'
+                deny_link = f'{site_url}/?autorizar={authorize_token}&recusar=1'
+                send_access_email(user['email'], user['name'], link, deny_link, bool(new_hash))
             except Exception as e:
                 save_pending({k: v for k, v in pending.items() if v['authorizeToken'] != authorize_token})
-                return self.json_response(500, {'message': f'Não foi possível enviar o e-mail: {e}'})
+                return self.json_response(500, {'message': 'Não foi possível enviar o e-mail. Tente novamente mais tarde.'})
             save_pending(pending)
             return self.json_response(202, {'email': user['email'], 'name': user['name'],
                                             'pollToken': poll_token,
@@ -248,9 +351,21 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_response(403, {'message': 'Ainda não autorizado. Clique em "Sim" no e-mail.'})
             if rec['used']:
                 return self.json_response(410, {'message': 'Este link já foi utilizado.'})
+            if rec['userId'].startswith('member:'):
+                if not MEMBERS_MODE: return self.json_response(403, {'message': 'Acesso indisponível.'})
+                store = member_store()
+                uid = rec['userId'][7:]
+                member = store.activate(uid, rec['newPasswordHash']) if rec.get('newPasswordHash') else store.by_id(uid)
+                if not member or member.get('status') != 'ativo':
+                    return self.json_response(403, {'message': 'Conta inválida, bloqueada ou já ativada.'})
+                user = member_public(member)
+            else:
+                if MEMBERS_MODE: return self.json_response(403, {'message': 'Acesso antigo desativado.'})
+                user = next((u for u in USERS if u['id'] == rec['userId']), None)
+                if not user: return self.json_response(401, {'message': 'Usuário não encontrado.'})
             rec['used'] = True
+            rec.pop('newPasswordHash', None)
             save_pending(pending)
-            user = next((u for u in USERS if u['id'] == rec['userId']), None)
             return self.json_response(200, {'token': make_session(user['id'], user['role']),
                                             'user': public_user(user)})
 
@@ -273,22 +388,39 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_response(200, {'status': 'aprovado'})
             return self.json_response(200, {'status': 'pendente'})
 
+        if path == '/api/members':
+            try:
+                actor = self.authenticated_member() if MEMBERS_MODE else None
+                if not can_manage_members(actor):
+                    return self.json_response(403, {'message': 'Somente técnicos e diretoria podem gerenciar membros.'})
+                return self.json_response(200, {'members': member_store().list()})
+            except MemberStoreError:
+                return self.json_response(503, {'message': 'Banco de membros indisponível. Avise o técnico.'})
+
         if path == '/auth/me':
             auth = self.headers.get('Authorization', '')
             token = auth[7:] if auth.startswith('Bearer ') else ''
             payload = read_session(token)
             if not payload:
                 return self.json_response(401, {'message': 'Sessão inválida ou expirada.'})
-            user = next((u for u in USERS if u['id'] == payload['userId']), None)
-            if not user:
-                return self.json_response(401, {'message': 'Usuário não encontrado.'})
+            uid = payload.get('userId', '')
+            if isinstance(uid, str) and uid.startswith('member:'):
+                try: member = self.authenticated_member() if MEMBERS_MODE else None
+                except MemberStoreError: return self.json_response(503, {'message': 'Banco de membros indisponível.'})
+                if not member: return self.json_response(401, {'message': 'Sessão inválida ou conta bloqueada.'})
+                user = member_public(member)
+            else:
+                if MEMBERS_MODE and uid != 'u-visitante':
+                    return self.json_response(401, {'message': 'Sessão antiga desativada.'})
+                user = next((u for u in USERS if u['id'] == uid), None)
+                if not user: return self.json_response(401, {'message': 'Usuário não encontrado.'})
             return self.json_response(200, {'user': public_user(user)})
 
         if path == '/api/health':
             return self.json_response(200, {'ok': True, 'service': 'escola-de-jegues', 'gmail': bool(ENV.get('GMAIL_REFRESH_TOKEN'))})
 
         # nunca expõe o backend nem o Git via HTTP
-        if path == '/backend' or path.startswith('/backend/') or path == '/.git' or path.startswith('/.git/'):
+        if any(path == '/' + folder or path.startswith('/' + folder + '/') for folder in ('backend', '.git', 'database', 'tests')):
             return self.send_error(404)
 
         # arquivos estáticos (com tratamento de path traversal do http.server)
