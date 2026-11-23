@@ -11,6 +11,7 @@ import json, os, re, hmac, hashlib, base64, secrets, time, urllib.request, urlli
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 import threading
+import math
 import html as html_lib
 try:
     from .member_store import MemberStore, MemberStoreError
@@ -58,16 +59,25 @@ def member_public(member):
             'email': member['email'], 'role': member['cargo']}
 
 
-def allow_attempt(key, limit=10):
+def reserve_login_attempt(email, address):
+    """Reserva nos dois limites ou informa o tempo restante, em segundos.
+
+    O chamador mantém PENDING_LOCK; uma tentativa bloqueada não renova o prazo.
+    O limite em memória é local à instância, não substitui proteção distribuída.
+    """
     now = time.time()
-    # Limite local ao processo, não substitui rate limit de infraestrutura.
-    recent = [t for t in LOGIN_ATTEMPTS.get(key, []) if t > now - 600]
-    if len(recent) >= limit:
+    limits = (('email:' + email, 10), ('ip:' + address, 100))
+    retry = 0
+    for key, limit in limits:
+        recent = [t for t in LOGIN_ATTEMPTS.get(key, []) if t > now - 600]
         LOGIN_ATTEMPTS[key] = recent
-        return False
-    recent.append(now)
-    LOGIN_ATTEMPTS[key] = recent
-    return True
+        if len(recent) >= limit:
+            retry = max(retry, math.ceil(recent[0] + 600 - now))
+    if retry:
+        return retry
+    for key, _ in limits:
+        LOGIN_ATTEMPTS[key].append(now)
+    return 0
 
 # As antigas senhas demonstrativas foram removidas. Apenas o visitante não
 # exige conta. As contas reais só são aceitas em MEMBERS_MODE.
@@ -266,8 +276,10 @@ class Handler(SimpleHTTPRequestHandler):
             password = body.get('password') or ''
             new_hash = None
             if MEMBERS_MODE:
-                if not allow_attempt('email:' + email) or not allow_attempt('ip:' + self.client_address[0], 100):
-                    return self.json_response(429, {'message': 'Muitas tentativas. Aguarde 10 minutos.'})
+                retry = reserve_login_attempt(email, self.client_address[0])
+                if retry:
+                    minutes, seconds = divmod(retry, 60)
+                    return self.json_response(429, {'message': f'Muitas tentativas. Tente novamente em {minutes} min e {seconds} s.', 'retryAfterSeconds': retry})
                 site_url = ENV.get('PUBLIC_SITE_URL', '')
                 if not site_url.startswith('https://'):
                     return self.json_response(503, {'message': 'Endereço público do portal não configurado.'})
