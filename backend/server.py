@@ -27,8 +27,9 @@ def load_env():
                 env[k.strip()] = v.strip()
     return env
 
-ENV = load_env()
-PORT = int(os.environ.get('PORT', ENV.get('PORT', '3001')))
+# Variáveis do serviço (Render) têm prioridade sobre o arquivo local.
+ENV = {**load_env(), **os.environ}
+PORT = int(ENV.get('PORT', '3001'))
 JWT_SECRET = ENV.get('JWT_SECRET') or secrets.token_hex(32)
 GMAIL_SENDER = ENV.get('GMAIL_SENDER', 'sr.agente208@gmail.com')
 TOKEN_TTL_SECONDS = 10 * 60  # link vale 10 minutos
