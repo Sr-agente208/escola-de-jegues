@@ -3,9 +3,8 @@
 services:
   - type: web
     name: escola-de-jegues
-    runtime: python
+    runtime: docker
     plan: free
-    startCommand: python3 backend/server.py
     healthCheckPath: /api/health
     envVars:
       # Preencha estes 4 no painel do Render após criar o Blueprint (SECRETS — nunca no Git):
@@ -20,3 +19,17 @@ services:
       # Render gera um JWT_SECRET forte sozinho:
       - key: JWT_SECRET
         generateValue: true
+      # PostgreSQL/Supabase: configure somente no painel, não no repositório.
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      # Chave independente com pelo menos 32 caracteres; também informada no menu.
+      - key: DB_ADMIN_SECRET
+        sync: false

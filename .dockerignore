@@ -1,0 +1,6 @@
+.git
+.env
+.env.*
+backend/pending.json
+__pycache__
+*.pyc

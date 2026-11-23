@@ -362,6 +362,7 @@ const NAV_ITEMS = [
   { id: 'hours',     label: 'Banco de Horas', icon: 'hours' },
   { id: 'classes',   label: 'Turmas', icon: 'classes' },
   { id: 'settings',  label: 'Configurações', icon: 'settings' },
+  { id: 'database', label: 'Banco de dados', icon: 'settings' },
 ];
 
 const ROLE_LABELS = { tecnico: 'Técnico de TI', professor: 'Professor(a)', aluno: 'Aluno(a)', responsavel: 'Responsável', visitante: 'Visitante (só visualização)' };
@@ -371,6 +372,7 @@ const VISITANTE_NAV = ['dashboard', 'teachers', 'classes'];
 function visibleNav() {
   const role = state.user.role;
   return NAV_ITEMS.filter(item => {
+    if (item.id === 'database') return state.user.id === 'u-tecnico2' && !CONFIG.useMockApi;
     if (role === 'visitante') return VISITANTE_NAV.includes(item.id);
     if (item.id === 'hours' && (role === 'aluno' || role === 'responsavel')) return false;
     return true;
@@ -437,17 +439,18 @@ function navigate(view) {
 }
 
 async function renderView() {
+  if (state.view === 'database' && (state.user.id !== 'u-tecnico2' || CONFIG.useMockApi)) state.view = 'dashboard';
   // visitante só pode acessar dashboard, professores e turmas
   if (state.user.role === 'visitante' && !VISITANTE_NAV.includes(state.view)) state.view = 'dashboard';
   const titles = {
     dashboard: 'Dashboard', teachers: 'Professores', students: 'Alunos',
-    grades: 'Notas', hours: 'Banco de Horas', classes: 'Turmas', settings: 'Configurações',
+    grades: 'Notas', hours: 'Banco de Horas', classes: 'Turmas', settings: 'Configurações', database: 'Banco de dados',
   };
   $('#page-title').textContent = titles[state.view] || '';
   const content = $('#content');
   content.innerHTML = '<div class="empty-state">Carregando...</div>';
   try {
-    const renderers = { dashboard: viewDashboard, teachers: viewTeachers, students: viewStudents, grades: viewGrades, hours: viewHours, classes: viewClasses, settings: viewSettings };
+    const renderers = { dashboard: viewDashboard, teachers: viewTeachers, students: viewStudents, grades: viewGrades, hours: viewHours, classes: viewClasses, settings: viewSettings, database: viewDatabase };
     content.innerHTML = await renderers[state.view]();
     bindViewEvents();
   } catch (err) {
@@ -1015,6 +1018,16 @@ async function viewClasses() {
   </div>`;
 }
 
+/* Administração limitada ao banco real de notas. O servidor verifica a sessão e o segredo. */
+function viewDatabase() {
+  return `<div class="card"><h3>Banco de dados de notas</h3>
+    <p>Consulte os totais e as 100 notas mais recentes do Supabase; altere os valores cadastrados. As outras telas usam dados de demonstração e não são alteradas.</p>
+    <form id="db-unlock"><div class="field"><label for="db-secret">Chave de administração do servidor</label>
+    <input id="db-secret" type="password" autocomplete="off" required></div>
+    <button class="btn btn-primary" type="submit">Consultar banco</button></form>
+    <p id="db-status" role="status"></p><div id="db-results"></div></div>`;
+}
+
 /* ============================================================
    CONFIGURAÇÕES (perfil · aparência · sistema)
    ============================================================ */
@@ -1124,6 +1137,40 @@ function applySchoolFormSettings(schoolName, schoolSlogan) {
    EVENTOS DA TELA ATUAL
    ============================================================ */
 function bindViewEvents() {
+  const dbForm = $('#db-unlock');
+  if (dbForm) {
+    const status = $('#db-status'), results = $('#db-results');
+    const request = async (path, options = {}) => {
+      const response = await fetch(`${CONFIG.apiBaseUrl}${path}`, { ...options, headers: {
+        'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem(BACKEND_TOKEN_KEY) || ''}`,
+        'X-Admin-Secret': $('#db-secret').value
+      }});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Erro ao consultar o banco.');
+      return data;
+    };
+    const load = async () => {
+      const data = await request('/api/database');
+      results.innerHTML = `<h4>Totais</h4><p>${Object.entries(data.contagens).map(([k,v]) => `${esc(k)}: ${esc(String(v))}`).join(' · ')}</p>
+        <h4>Últimas notas (até 100)</h4>${data.notas.map(n => `<form class="db-grade" data-id="${esc(String(n.id_nota))}">
+        <div class="field"><label>${esc(n.aluno)} — ${esc(n.disciplina)}, ${esc(String(n.bimestre))}º bimestre (ID ${esc(String(n.id_nota))})</label>
+        <input name="valor" type="number" min="0" max="10" step="0.01" value="${esc(String(n.valor))}" required></div>
+        <button class="btn btn-outline btn-sm" type="submit">Salvar nota</button></form>`).join('') || '<p>Nenhuma nota cadastrada.</p>'}`;
+      results.querySelectorAll('.db-grade').forEach(form => form.addEventListener('submit', async e => {
+        e.preventDefault();
+        try {
+          await request(`/api/database/notas/${form.dataset.id}`, { method: 'POST', body: JSON.stringify({ valor: form.elements.valor.value }) });
+          await load(); status.textContent = 'Nota atualizada.';
+        } catch (err) { status.textContent = err.message; }
+      }));
+    };
+    dbForm.addEventListener('submit', async e => {
+      e.preventDefault(); status.textContent = 'Consultando...'; results.innerHTML = '';
+      try { await load(); status.textContent = 'Banco consultado.'; }
+      catch (err) { status.textContent = err.message; }
+    });
+  }
+
   // configurações: aparência
   document.querySelectorAll('[data-theme-choice]').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.themeChoice)));
   document.querySelectorAll('[data-accent-choice]').forEach(b => b.addEventListener('click', () => setAccent(b.dataset.accentChoice)));

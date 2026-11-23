@@ -8,6 +8,7 @@
 # Porta:  3001 (ou variável PORT)
 # ============================================================
 import json, os, re, hmac, hashlib, base64, secrets, time, urllib.request, urllib.parse, mimetypes
+import database_admin
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
@@ -136,7 +137,7 @@ class Handler(SimpleHTTPRequestHandler):
     def cors_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Secret')
 
     def end_headers(self):
         self.cors_headers()
@@ -151,6 +152,7 @@ class Handler(SimpleHTTPRequestHandler):
         body = json.dumps(payload, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -168,9 +170,37 @@ class Handler(SimpleHTTPRequestHandler):
         host = self.headers.get('X-Forwarded-Host') or self.headers.get('Host', f'localhost:{PORT}')
         return f'{proto}://{host}'
 
+    def admin_allowed(self):
+        auth = self.headers.get('Authorization', '')
+        payload = read_session(auth[7:] if auth.startswith('Bearer ') else '')
+        secret = os.environ.get('DB_ADMIN_SECRET', '')
+        supplied = self.headers.get('X-Admin-Secret', '')
+        return bool(payload and payload.get('userId') == 'u-tecnico2' and
+                    len(secret) >= 32 and hmac.compare_digest(secret.encode(), supplied.encode()))
+
+    def admin_route(self, path):
+        if not self.admin_allowed():
+            return self.json_response(403, {'message': 'Acesso negado ou administração não configurada.'})
+        try:
+            if self.command == 'GET' and path == '/api/database':
+                return self.json_response(200, database_admin.overview())
+            match = re.fullmatch(r'/api/database/notas/([1-9][0-9]{0,18})', path)
+            if self.command == 'POST' and match:
+                body = self.read_json()
+                database_admin.update_grade(int(match.group(1)), body.get('valor'))
+                return self.json_response(200, {'ok': True})
+            return self.json_response(404, {'message': 'Rota não encontrada.'})
+        except (ValueError, LookupError) as exc:
+            return self.json_response(400, {'message': str(exc)})
+        except Exception:
+            return self.json_response(503, {'message': 'Não foi possível acessar o banco. Verifique a configuração no servidor.'})
+
     # ----- rotas da API -----
     def do_POST(self):
         path = self.path.split('?')[0].rstrip('/') or '/'
+
+        if path == '/api/database' or path.startswith('/api/database/'):
+            return self.admin_route(path)
 
         if path == '/auth/request-access':
             body = self.read_json()
@@ -254,6 +284,9 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split('?')[0].rstrip('/') or '/'
 
+        if path == '/api/database' or path.startswith('/api/database/'):
+            return self.admin_route(path)
+
         m = re.match(r'^/auth/access/([^/]+)$', path)
         if m:
             token = m.group(1)
@@ -282,7 +315,9 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/health':
             return self.json_response(200, {'ok': True, 'service': 'escola-de-jegues', 'gmail': bool(ENV.get('GMAIL_REFRESH_TOKEN'))})
 
-        # arquivos estáticos (com tratamento de path traversal do http.server)
+        # Somente arquivos públicos do site; nunca expor código, segredos ou dados do servidor.
+        if path not in ('/', '/index.html') and not re.fullmatch(r'/(?:js|css)/[a-zA-Z0-9_-]+\.(?:js|css)', path):
+            return self.json_response(404, {'message': 'Não encontrado.'})
         super().do_GET()
 
     def log_message(self, fmt, *args):

@@ -165,3 +165,9 @@ O site já está **100% pronto no front-end**. A conexão com o banco de dados �
 - Para **zerar os dados de exemplo**: *Configurações → Sistema → Restaurar dados de exemplo* (ou limpe a chave `escola_horizonte_db_v2` no navegador).
 - As senhas nos dados de exemplo são texto simples apenas para demonstração — no backend, use hash (bcrypt) e autenticação com token (JWT).
 - Preferências de tema ficam na chave `escola_horizonte_settings` no navegador.
+
+## Banco de notas com PHP
+
+Há um esquema relacional MySQL e uma conexão PDO em `database/schema.sql` e `backend/php/`. Consulte [database/README.md](database/README.md) para instalar e entender as limitações. Este módulo ainda não substitui os dados de demonstração do portal nem o backend Python.
+
+Para a configuração preparada com Supabase e Render, consulte [database/SUPABASE_RENDER.md](database/SUPABASE_RENDER.md). O portal ainda não está integrado ao banco PostgreSQL.
